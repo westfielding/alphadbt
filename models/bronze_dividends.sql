@@ -25,12 +25,12 @@ select
 
     -- ── Date fields (all raw STRING — cast deferred to Silver) ───────────────
     date,
-    record_date,
-    payment_date,
-    declaration_date,
+    recordDate,
+    paymentDate,
+    declarationDate,
 
     -- ── Financial fields (raw STRING) ────────────────────────────────────────
-    adj_dividend,
+    adjDividend,
     dividend,
     yield,
     frequency,

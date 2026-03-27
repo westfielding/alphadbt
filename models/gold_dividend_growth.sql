@@ -24,6 +24,41 @@ with silver as (
 
 ),
 
+-- Spark SQL requires LAG() offset to be a constant foldable expression.
+-- Pre-compute all needed offsets, then select the right one with CASE.
+lagged as (
+
+    select
+        symbol,
+        ex_date,
+        ex_year,
+        frequency,
+        dividend_adj,
+
+        -- QoQ
+        lag(dividend_adj, 1)  over (partition by symbol order by ex_date) as lag_div_1,
+
+        -- YoY candidates
+        lag(dividend_adj, 2)  over (partition by symbol order by ex_date) as lag_div_2,
+        lag(dividend_adj, 4)  over (partition by symbol order by ex_date) as lag_div_4,
+        lag(dividend_adj, 12) over (partition by symbol order by ex_date) as lag_div_12,
+
+        -- 5-year candidates (dividend)
+        lag(dividend_adj, 5)  over (partition by symbol order by ex_date) as lag_div_5,
+        lag(dividend_adj, 10) over (partition by symbol order by ex_date) as lag_div_10,
+        lag(dividend_adj, 20) over (partition by symbol order by ex_date) as lag_div_20,
+        lag(dividend_adj, 60) over (partition by symbol order by ex_date) as lag_div_60,
+
+        -- 5-year candidates (ex_date)
+        lag(ex_date, 5)  over (partition by symbol order by ex_date) as lag_date_5,
+        lag(ex_date, 10) over (partition by symbol order by ex_date) as lag_date_10,
+        lag(ex_date, 20) over (partition by symbol order by ex_date) as lag_date_20,
+        lag(ex_date, 60) over (partition by symbol order by ex_date) as lag_date_60
+
+    from silver
+
+),
+
 with_lag as (
 
     select
@@ -34,59 +69,44 @@ with_lag as (
         dividend_adj,
 
         -- ── Prior period (QoQ) ────────────────────────────────────────────────
-        lag(dividend_adj, 1) over (
-            partition by symbol
-            order by ex_date
-        )                                           as prev_dividend_adj,
+        lag_div_1                                   as prev_dividend_adj,
 
-        -- ── Same period prior year (YoY) — lag by 4 for quarterly, 1 for annual
-        -- Use frequency_days to determine correct lag offset
-        lag(dividend_adj, case
-            when frequency = 'Quarterly'   then 4
-            when frequency = 'Monthly'     then 12
-            when frequency = 'Semi-annual' then 2
-            when frequency = 'Annual'      then 1
-            else 4
-        end) over (
-            partition by symbol
-            order by ex_date
-        )                                           as yoy_prev_dividend_adj,
+        -- ── Same period prior year (YoY) ─────────────────────────────────────
+        case
+            when frequency = 'Quarterly'   then lag_div_4
+            when frequency = 'Monthly'     then lag_div_12
+            when frequency = 'Semi-annual' then lag_div_2
+            when frequency = 'Annual'      then lag_div_1
+            else lag_div_4
+        end                                         as yoy_prev_dividend_adj,
 
-        -- ── 5-year prior for CAGR (20 quarters back for quarterly payers) ─────
-        lag(dividend_adj, case
-            when frequency = 'Quarterly'   then 20
-            when frequency = 'Monthly'     then 60
-            when frequency = 'Semi-annual' then 10
-            when frequency = 'Annual'      then 5
-            else 20
-        end) over (
-            partition by symbol
-            order by ex_date
-        )                                           as five_yr_prev_dividend_adj,
+        -- ── 5-year prior for CAGR ─────────────────────────────────────────────
+        case
+            when frequency = 'Quarterly'   then lag_div_20
+            when frequency = 'Monthly'     then lag_div_60
+            when frequency = 'Semi-annual' then lag_div_10
+            when frequency = 'Annual'      then lag_div_5
+            else lag_div_20
+        end                                         as five_yr_prev_dividend_adj,
 
-        lag(ex_date, case
-            when frequency = 'Quarterly'   then 20
-            when frequency = 'Monthly'     then 60
-            when frequency = 'Semi-annual' then 10
-            when frequency = 'Annual'      then 5
-            else 20
-        end) over (
-            partition by symbol
-            order by ex_date
-        )                                           as five_yr_prev_ex_date,
+        case
+            when frequency = 'Quarterly'   then lag_date_20
+            when frequency = 'Monthly'     then lag_date_60
+            when frequency = 'Semi-annual' then lag_date_10
+            when frequency = 'Annual'      then lag_date_5
+            else lag_date_20
+        end                                         as five_yr_prev_ex_date,
 
         -- ── Consecutive raises: running count of QoQ increases ────────────────
         sum(case
-            when dividend_adj > lag(dividend_adj, 1) over (
-                partition by symbol order by ex_date
-            ) then 1 else 0
+            when dividend_adj > lag_div_1 then 1 else 0
         end) over (
             partition by symbol
             order by ex_date
             rows between unbounded preceding and current row
         )                                           as cumulative_increases
 
-    from silver
+    from lagged
 
 ),
 

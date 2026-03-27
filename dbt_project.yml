@@ -1,0 +1,54 @@
+name: dividend_dbt
+version: '1.0.0'
+config-version: 2
+
+profile: dividend_databricks
+
+model-paths: ["models"]
+macro-paths: ["macros"]
+test-paths:  ["tests"]
+seed-paths:  ["seeds"]
+analysis-paths: ["analyses"]
+
+target-path: "target"
+clean-targets: ["target", "dbt_packages"]
+
+vars:
+  dividend_db_schema: dividend_db
+
+models:
+  dividend_dbt:
+    # ── Bronze: raw ingest, append-only Delta table ──────────────────────────
+    bronze:
+      +schema: dividend_db
+      +materialized: incremental
+      +incremental_strategy: append
+      +file_format: delta
+      +on_schema_change: sync_all_columns
+      +tags: ["bronze", "dividend"]
+      +meta:
+        layer: bronze
+        owner: data_engineering
+
+    # ── Silver: cleaned, typed, deduplicated ─────────────────────────────────
+    silver:
+      +schema: dividend_db
+      +materialized: incremental
+      +incremental_strategy: merge
+      +file_format: delta
+      +on_schema_change: sync_all_columns
+      +tags: ["silver", "dividend"]
+      +meta:
+        layer: silver
+        owner: data_engineering
+
+    # ── Gold: business-level aggregations ────────────────────────────────────
+    gold:
+      +schema: dividend_db
+      +materialized: table
+      +file_format: delta
+      +on_schema_change: sync_all_columns
+      +tags: ["gold", "dividend"]
+      +meta:
+        layer: gold
+        owner: analytics

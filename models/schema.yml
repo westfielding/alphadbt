@@ -1,0 +1,68 @@
+# models/bronze/schema.yml
+# Declares the raw API landing table as a dbt source, then documents
+# the bronze_dividends model that sits on top of it.
+
+version: 2
+
+sources:
+  - name: raw_dividend_api
+    description: >
+      Raw dividend records landed from the financial data API.
+      One JSON object per API response row, written as structured
+      columns by the ingestion pipeline (Go / NATS / Kafka).
+    database: workspace     # update to Unity Catalog name if applicable
+    schema: dividend_db
+    tables:
+      - name: raw_dividends
+        description: Append-only landing table; no transforms applied.
+        columns:
+          - name: symbol
+            description: Ticker symbol (e.g. AAPL)
+          - name: date
+            description: Ex-dividend date (raw string from API)
+          - name: recordDate
+          - name: paymentDate
+          - name: declarationDate
+          - name: adjDividend
+          - name: dividend
+          - name: yield
+          - name: frequency
+          - name: _ingested_at
+            description: Pipeline write timestamp (UTC)
+          - name: _source
+            description: Source system identifier
+          - name: _batch_id
+            description: Pipeline run / batch identifier
+
+models:
+  - name: bronze_dividends
+    description: >
+      Bronze layer: raw dividend records with pipeline metadata preserved.
+      No type casting; all financial and date columns remain STRING to
+      guarantee lossless replay. Materialised as an incremental Delta table
+      with append strategy — rows are never updated or deleted here.
+    columns:
+      - name: symbol
+        description: Ticker symbol, raw STRING
+        tests:
+          - not_null
+      - name: date
+        description: Ex-dividend date, raw STRING
+        tests:
+          - not_null
+      - name: adjDividend
+        description: Adjusted dividend amount, raw STRING
+      - name: dividend
+        description: Declared dividend amount, raw STRING
+      - name: yield
+        description: Dividend yield at time of record, raw STRING
+      - name: frequency
+        description: Payment frequency (Quarterly / Annual / etc.), raw STRING
+      - name: recordDate
+      - name: paymentDate
+      - name: declarationDate
+      - name: _ingested_at
+        tests:
+          - not_null
+      - name: _source
+      - name: _batch_id
